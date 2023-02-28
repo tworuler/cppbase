@@ -4,9 +4,15 @@
 #if defined(ANDROID) || defined(__ANDROID__)
 #include <android/log.h>
 #endif
+#if defined(_MSC_VER)
+#include <chrono>  // NOLINT
+#else
+#include <sys/time.h>
+#endif
 
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <sstream>
 
@@ -29,6 +35,12 @@ class LoggingWrapper {
 
   ~LoggingWrapper() {
     if (severity_ >= LogSeverity::INFO) {
+      char tm_str[40] = {0};
+      time_t now = time(nullptr);
+      struct tm* tm_info = localtime(&now);
+      auto len = strftime(tm_str, sizeof(tm_str), "%Y-%m-%d %H:%M:%S", tm_info);
+      snprintf(tm_str + len, 8, ".%06d", GetUsec());
+
 #if defined(_WIN32)
       char sep = '\\';
 #else
@@ -36,7 +48,7 @@ class LoggingWrapper {
 #endif
       const char* const partial_name = strrchr(filename_, sep);
       std::stringstream ss;
-      ss << "IWEF"[static_cast<int>(severity_)] << ' '
+      ss << "IWEF"[static_cast<int>(severity_)] << ' ' << tm_str << ' '
          << (partial_name != nullptr ? partial_name + 1 : filename_) << ':'
          << line_ << "] " << stream_.str();
       std::cerr << ss.str() << std::endl;
@@ -57,7 +69,7 @@ class LoggingWrapper {
           android_log_level = ANDROID_LOG_FATAL;
           break;
       }
-      __android_log_write(android_log_level, "BUTU", ss.str().c_str());
+      __android_log_write(android_log_level, "CB", ss.str().c_str() + 29);
 #endif
 
       if (severity_ == LogSeverity::FATAL) {
@@ -65,6 +77,20 @@ class LoggingWrapper {
         std::abort();
       }
     }
+  }
+
+  static int GetUsec() {
+#if defined(_MSC_VER)
+    auto usec = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count() %
+                1000000;
+    return static_cast<int>(usec);
+#else
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return tv.tv_usec;
+#endif
   }
 
   static int VLogLevel() { return vlog_level(); }
